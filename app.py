@@ -1,8 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import os
 
-# --- CONFIGURATION ---
+# --- CONFIG ---
 st.set_page_config(
     page_title="🌍 IMF WEO Economic Dashboard",
     layout="wide",
@@ -10,22 +11,27 @@ st.set_page_config(
 )
 
 # --- LOAD DATA ---
-df = pd.read_csv(
-    r"C:\Users\postgres\database\Data_World\Database_ET\WEO_IMF_Data\cleaned_WEO_data_FINAL.csv"
-)
+df = pd.read_csv("cleaned_WEO_data_FINAL.csv")
 
 # --- SIDEBAR FILTERS ---
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/1/1a/IMF_logo.svg/1200px-IMF_logo.svg.png", width=120)
+    # Safely display the image
+    img_path = os.path.join("images", "logo.png")
+    if os.path.exists(img_path):
+        st.image(img_path, width=120)
+
     st.title("🌍 Filter Options")
-    
+
     countries = sorted(df['country_clean'].dropna().unique())
     selected_country = st.selectbox("Select a Country", countries, index=countries.index("Liberia") if "Liberia" in countries else 0)
 
-    indicators = df[df['country_clean'] == selected_country]['indicator'].unique()
+    indicators = df[df['country_clean'] == selected_country]['indicator'].dropna().unique()
+    if len(indicators) == 0:
+        st.error("No indicators found for selected country.")
+        st.stop()
     selected_indicator = st.selectbox("Select an Indicator", sorted(indicators))
 
-    # Optional year range filter
+    # Year slider
     year_min, year_max = int(df['year'].min()), int(df['year'].max())
     selected_years = st.slider("Select Year Range", year_min, year_max, (2000, year_max))
 
@@ -35,6 +41,10 @@ filtered = df[
     (df['indicator'] == selected_indicator) &
     (df['year'].between(*selected_years))
 ].copy()
+
+if filtered.empty:
+    st.warning("No data available for this selection.")
+    st.stop()
 
 # --- KPI METRICS ---
 latest = filtered.sort_values("year").iloc[-1]
@@ -47,21 +57,23 @@ col3.metric("🔮 Forecast?", "Yes" if latest["is_forecast"] == 1 else "No")
 
 # --- CHART DISPLAY ---
 st.subheader(f"📈 {selected_indicator} in {selected_country}")
-
 chart_type = st.radio("Choose Chart Type:", ["Line Chart", "Area Chart"], horizontal=True)
 
 chart_data = filtered.set_index("year")["value_scaled"]
 
-if chart_type == "Line Chart":
-    st.line_chart(chart_data)
+if chart_data.empty:
+    st.warning("No chart data available.")
 else:
-    st.area_chart(chart_data)
+    if chart_type == "Line Chart":
+        st.line_chart(chart_data)
+    else:
+        st.area_chart(chart_data)
 
-# --- RAW DATA VIEW ---
+# --- RAW DATA ---
 with st.expander("📄 View Filtered Data"):
     st.dataframe(filtered[['year', 'value_scaled', 'unit', 'source', 'is_forecast']])
 
-    # Download button
+    # Download filtered data
     csv = filtered.to_csv(index=False).encode('utf-8')
     st.download_button(
         label="⬇️ Download Filtered Data as CSV",
@@ -70,7 +82,7 @@ with st.expander("📄 View Filtered Data"):
         mime="text/csv"
     )
 
-# --- OPTIONAL: Indicator Group Summary (Bottom)
+# --- Indicator Details ---
 with st.expander("📊 Indicator Details"):
     st.markdown(f"**Source:** {latest['source']}")
     st.markdown(f"**Group:** {latest['indicator_group']}")
